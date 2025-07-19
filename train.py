@@ -344,7 +344,6 @@ class ASLRecognitionSystem:
         plt.show()
 
 def main():
-    # Initialize the ASL recognition system
     asl_system = ASLRecognitionSystem('asl_dataset')
     
     print("=== ASL Sign Language Recognition System ===\n")
@@ -369,9 +368,6 @@ def main():
     
     # Step 4: Test with a sample image
     print("\n=== Testing with Sample Image ===")
-    
-    # You can test with any image from your dataset or a new image
-    # Example: test with the first image found in the dataset
     test_image_path = None
     for class_folder in os.listdir('asl_dataset'):
         class_path = os.path.join('asl_dataset', class_folder)
@@ -391,8 +387,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-# Example usage for testing with your own image:
-# asl_system = ASLRecognitionSystem()
-# asl_system.load_trained_model('asl_model.pkl')  # Load pre-trained model
-# asl_system.predict_image('path/to/your/test/image.jpg')
