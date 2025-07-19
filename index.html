@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ASL Sign Language Recognition</title>
+</head>
+<body>
+    <h1>ASL Sign Language Recognition</h1>
+    
+    <div id="apiStatus">Checking API connection...</div>
+    <hr>
+    
+    <h2>Camera & Upload</h2>
+    <video id="video" width="400" height="300" autoplay muted></video>
+    <canvas id="canvas" style="display: none;"></canvas>
+    <br><br>
+    
+    <button id="startCamera">Start Camera</button>
+    <button id="captureBtn" disabled>Capture & Predict</button>
+    <button id="stopCamera" disabled>Stop Camera</button>
+    <br><br>
+    
+    <input type="file" id="fileInput" accept="image/*">
+    <label for="fileInput">Upload Image</label>
+    <hr>
+    
+    <h2>Prediction Results</h2>
+    <div id="predictionResults">
+        <p>Capture an image or upload a photo to see predictions</p>
+    </div>
+    <hr>
+    
+    <h2>Sentence Builder</h2>
+    <div id="sentenceDisplay">
+        <strong>Current Sentence:</strong> <span id="sentenceText">Start capturing signs to build your sentence...</span>
+    </div>
+    <br>
+    
+    <button id="addLastPrediction" disabled>Add Last Prediction</button>
+    <button id="removeLastWord">Remove Last Word</button>
+    <button id="clearSentence">Clear Sentence</button>
+
+    <script>
+        class ASLRecognitionApp {
+            constructor() {
+                this.apiUrl = 'http://localhost:8000';
+                this.video = document.getElementById('video');
+                this.canvas = document.getElementById('canvas');
+                this.ctx = this.canvas.getContext('2d');
+                this.stream = null;
+                this.lastPrediction = null;
+                
+                this.initializeElements();
+                this.bindEvents();
+                this.checkApiStatus();
+            }
+
+            initializeElements() {
+                this.startCameraBtn = document.getElementById('startCamera');
+                this.captureBtn = document.getElementById('captureBtn');
+                this.stopCameraBtn = document.getElementById('stopCamera');
+                this.fileInput = document.getElementById('fileInput');
+                this.predictionResults = document.getElementById('predictionResults');
+                this.sentenceText = document.getElementById('sentenceText');
+                this.addLastPredictionBtn = document.getElementById('addLastPrediction');
+                this.removeLastWordBtn = document.getElementById('removeLastWord');
+                this.clearSentenceBtn = document.getElementById('clearSentence');
+                this.apiStatus = document.getElementById('apiStatus');
+            }
+
+            bindEvents() {
+                this.startCameraBtn.addEventListener('click', () => this.startCamera());
+                this.captureBtn.addEventListener('click', () => this.captureAndPredict());
+                this.stopCameraBtn.addEventListener('click', () => this.stopCamera());
+                this.fileInput.addEventListener('change', (e) => this.handleFileUpload(e));
+                this.addLastPredictionBtn.addEventListener('click', () => this.addLastPredictionToSentence());
+                this.removeLastWordBtn.addEventListener('click', () => this.removeLastWord());
+                this.clearSentenceBtn.addEventListener('click', () => this.clearSentence());
+            }
+
+            async checkApiStatus() {
+                try {
+                    const response = await fetch(`${this.apiUrl}/health`);
+                    const data = await response.json();
+                    
+                    if (data.model_loaded) {
+                        this.apiStatus.innerHTML = `API Connected - Model loaded with ${data.classes.length} sign classes`;
+                    } else {
+                        this.apiStatus.innerHTML = `API Connected - But model not loaded`;
+                    }
+                } catch (error) {
+                    this.apiStatus.innerHTML = `API Offline - Please ensure the backend is running on ${this.apiUrl}`;
+                }
+            }
+
+            async startCamera() {
+                try {
+                    this.stream = await navigator.mediaDevices.getUserMedia({ 
+                        video: { width: 640, height: 480 } 
+                    });
+                    this.video.srcObject = this.stream;
+                    
+                    this.startCameraBtn.disabled = true;
+                    this.captureBtn.disabled = false;
+                    this.stopCameraBtn.disabled = false;
+                } catch (error) {
+                    alert('Failed to access camera: ' + error.message);
+                }
+            }
+
+            stopCamera() {
+                if (this.stream) {
+                    this.stream.getTracks().forEach(track => track.stop());
+                    this.video.srcObject = null;
+                    this.stream = null;
+                }
+                
+                this.startCameraBtn.disabled = false;
+                this.captureBtn.disabled = true;
+                this.stopCameraBtn.disabled = true;
+            }
+
+            captureAndPredict() {
+                this.canvas.width = this.video.videoWidth;
+                this.canvas.height = this.video.videoHeight;
+                this.ctx.drawImage(this.video, 0, 0);
+                this.canvas.toBlob(blob => this.predictFromBlob(blob), 'image/jpeg');
+            }
+
+            async handleFileUpload(event) {
+                const file = event.target.files[0];
+                if (file) {
+                    await this.predictFromBlob(file);
+                }
+            }
+
+            async predictFromBlob(blob) {
+                try {
+                    this.predictionResults.innerHTML = 'Processing image...';
+                    
+                    const formData = new FormData();
+                    formData.append('file', blob, 'image.jpg');
+                    
+                    const response = await fetch(`${this.apiUrl}/predict`, {
+                        method: 'POST',
+                        body: formData
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (response.ok) {
+                        this.lastPrediction = data;
+                        this.displayPrediction(data);
+                        this.addLastPredictionBtn.disabled = false;
+                    } else {
+                        this.predictionResults.innerHTML = `Error: ${data.error || 'Prediction failed'}`;
+                    }
+                } catch (error) {
+                    this.predictionResults.innerHTML = `Network error: ${error.message}`;
+                }
+            }
+
+            displayPrediction(data) {
+                const confidencePercentage = Math.round(data.confidence * 100);
+                
+                let html = `
+                    <h3>Predicted Sign: ${data.predicted_sign.toUpperCase()}</h3>
+                    <p>Confidence: ${confidencePercentage}%</p>
+                `;
+                
+                if (data.top_predictions && data.top_predictions.length > 1) {
+                    html += '<h4>Top Predictions:</h4><ul>';
+                    data.top_predictions.forEach(pred => {
+                        const conf = Math.round(pred.confidence * 100);
+                        html += `<li>${pred.class}: ${conf}%</li>`;
+                    });
+                    html += '</ul>';
+                }
+                
+                this.predictionResults.innerHTML = html;
+            }
+
+            async addLastPredictionToSentence() {
+                if (!this.lastPrediction) return;
+                
+                try {
+                    const response = await fetch(`${this.apiUrl}/add-word`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ word: this.lastPrediction.predicted_sign })
+                    });
+                    
+                    const data = await response.json();
+                    this.updateSentenceDisplay(data.current_sentence);
+                    alert(`Added "${this.lastPrediction.predicted_sign}" to sentence`);
+                } catch (error) {
+                    alert('Failed to add word to sentence');
+                }
+            }
+
+            async removeLastWord() {
+                try {
+                    const response = await fetch(`${this.apiUrl}/sentence/remove-last`, {
+                        method: 'POST'
+                    });
+                    
+                    const data = await response.json();
+                    this.updateSentenceDisplay(data.current_sentence);
+                } catch (error) {
+                    alert('Failed to remove last word');
+                }
+            }
+
+            async clearSentence() {
+                try {
+                    const response = await fetch(`${this.apiUrl}/sentence/clear`, {
+                        method: 'POST'
+                    });
+                    
+                    this.updateSentenceDisplay('');
+                } catch (error) {
+                    alert('Failed to clear sentence');
+                }
+            }
+
+            updateSentenceDisplay(sentence) {
+                if (sentence && sentence.trim()) {
+                    this.sentenceText.textContent = sentence;
+                } else {
+                    this.sentenceText.textContent = 'Start capturing signs to build your sentence...';
+                }
+            }
+        }
+
+        // Initialize the app when the page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            new ASLRecognitionApp();
+        });
+    </script>
+</body>
+</html>
